@@ -1,0 +1,5 @@
+Our method uses a multi-stage pipeline for automatic figure generation.
+First, we extract key concepts from the paper text using a language model.
+Then, we generate visual icons for each concept using a text-to-image model.
+Finally, we arrange the icons in a logical flow diagram with arrows connecting related components.
+The system produces publication-ready scientific illustrations in SVG format.

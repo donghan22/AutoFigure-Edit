@@ -41,8 +41,11 @@
     function saveInputState() {
       const state = {
         methodText: $("methodText")?.value ?? "",
-        provider: $("provider")?.value ?? "gemini",
+        provider: $("provider")?.value ?? "dashscope",
         apiKey: $("apiKey")?.value ?? "",
+        imageApiKey: $("imageApiKey")?.value ?? "",
+        imageModel: $("imageModel")?.value ?? "",
+        svgModel: $("svgModel")?.value ?? "",
         optimizeIterations: $("optimizeIterations")?.value ?? "0",
         samBackend: samBackend?.value ?? "roboflow",
         samPrompt: samPrompt?.value ?? "icon,person,robot,animal",
@@ -71,6 +74,15 @@
       }
       if (typeof state.apiKey === "string") {
         $("apiKey").value = state.apiKey;
+      }
+      if (typeof state.imageApiKey === "string") {
+        $("imageApiKey").value = state.imageApiKey;
+      }
+      if (typeof state.imageModel === "string" && $("imageModel")) {
+        $("imageModel").value = state.imageModel;
+      }
+      if (typeof state.svgModel === "string" && $("svgModel")) {
+        $("svgModel").value = state.svgModel;
       }
       if (typeof state.optimizeIterations === "string" && $("optimizeIterations")) {
         $("optimizeIterations").value = state.optimizeIterations;
@@ -119,6 +131,32 @@
 
     applyInputState();
 
+    // Set initial default values for models if empty
+    const imageModelInput = $("imageModel");
+    const svgModelInput = $("svgModel");
+    const providerSelect = $("provider");
+
+    const MODEL_DEFAULTS = {
+      dashscope: { image: "wan2.6-t2i", svg: "qwen3.5-plus" },
+      gemini: { image: "gemini-3-pro-image-preview", svg: "gemini-3.1-pro" },
+      bianxie: { image: "gemini-3-pro-image-preview", svg: "gemini-3.1-pro-preview" },
+      openrouter: { image: "google/gemini-3-pro-image-preview", svg: "google/gemini-3.1-pro-preview" },
+    };
+
+    function applyModelDefaults() {
+      const provider = providerSelect?.value || "dashscope";
+      const defaults = MODEL_DEFAULTS[provider] || MODEL_DEFAULTS.dashscope;
+      if (imageModelInput && !imageModelInput.value) {
+        imageModelInput.value = defaults.image;
+      }
+      if (svgModelInput && !svgModelInput.value) {
+        svgModelInput.value = defaults.svg;
+      }
+    }
+
+    // Apply defaults on initial load (after applyInputState)
+    applyModelDefaults();
+
     if (samBackend) {
       samBackend.addEventListener("change", syncSamApiKeyVisibility);
       syncSamApiKeyVisibility();
@@ -161,6 +199,9 @@
       $("methodText"),
       $("provider"),
       $("apiKey"),
+      $("imageApiKey"),
+      $("imageModel"),
+      $("svgModel"),
       $("optimizeIterations"),
       samPrompt,
       samApiKeyInput,
@@ -171,6 +212,21 @@
       }
       field.addEventListener("input", saveInputState);
       field.addEventListener("change", saveInputState);
+    }
+
+    // Provider change handler to update default models
+    if (providerSelect) {
+      providerSelect.addEventListener("change", () => {
+        const provider = providerSelect.value;
+        const defaults = MODEL_DEFAULTS[provider] || MODEL_DEFAULTS.dashscope;
+        if (imageModelInput && !imageModelInput.value) {
+          imageModelInput.value = defaults.image;
+        }
+        if (svgModelInput && !svgModelInput.value) {
+          svgModelInput.value = defaults.svg;
+        }
+        saveInputState();
+      });
     }
 
     confirmBtn.addEventListener("click", async () => {
@@ -188,6 +244,9 @@
         method_text: methodText,
         provider: $("provider").value,
         api_key: $("apiKey").value.trim() || null,
+        image_api_key: $("imageApiKey").value.trim() || null,
+        image_model: $("imageModel").value.trim() || null,
+        svg_model: $("svgModel").value.trim() || null,
         optimize_iterations: parseInt($("optimizeIterations").value, 10),
         reference_image_path: uploadedReferencePath,
         sam_backend: $("samBackend").value,

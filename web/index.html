@@ -31,15 +31,32 @@
           <div class="field-group">
             <label class="field-label" for="provider">Provider</label>
             <select id="provider" class="input">
+              <option value="dashscope" selected>DashScope (Qwen)</option>
               <option value="bianxie">Bianxie</option>
               <option value="openrouter">OpenRouter</option>
-              <option value="gemini" selected>Gemini (Google)</option>
+              <option value="gemini">Gemini (Google)</option>
             </select>
           </div>
 
           <div class="field-group">
-            <label class="field-label" for="apiKey">API Key</label>
+            <label class="field-label" for="apiKey">API Key (Qwen - Text/SVG)</label>
             <input id="apiKey" type="password" class="input" placeholder="sk-..." />
+          </div>
+
+          <div class="field-group">
+            <label class="field-label" for="imageApiKey">Image API Key (Wanx)</label>
+            <input id="imageApiKey" type="password" class="input" placeholder="sk-... (for image generation)" />
+          </div>
+
+          <div class="field-row">
+            <div class="field-group">
+              <label class="field-label" for="imageModel">Image Model</label>
+              <input id="imageModel" type="text" class="input" placeholder="wan2.6-t2i" />
+            </div>
+            <div class="field-group">
+              <label class="field-label" for="svgModel">SVG Model</label>
+              <input id="svgModel" type="text" class="input" placeholder="qwen3.5-plus" />
+            </div>
           </div>
 
           <div class="field-group">

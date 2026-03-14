@@ -104,9 +104,14 @@ PROVIDER_CONFIGS = {
         "default_image_model": "gemini-3-pro-image-preview",
         "default_svg_model": "gemini-3.1-pro",
     },
+    "dashscope": {
+        "base_url": "https://coding.dashscope.aliyuncs.com/v1",
+        "default_image_model": "wan2.6-t2i",
+        "default_svg_model": "qwen3.5-plus",
+    },
 }
 
-ProviderType = Literal["openrouter", "bianxie", "gemini"]
+ProviderType = Literal["openrouter", "bianxie", "gemini", "dashscope"]
 PlaceholderMode = Literal["none", "box", "label"]
 GEMINI_DEFAULT_IMAGE_SIZE = "4K"
 
@@ -156,6 +161,8 @@ def call_llm_text(
         return _call_bianxie_text(prompt, api_key, model, base_url, max_tokens, temperature)
     if provider == "gemini":
         return _call_gemini_text(prompt, api_key, model, max_tokens, temperature)
+    if provider == "dashscope":
+        return _call_dashscope_text(prompt, api_key, model, max_tokens, temperature)
     return _call_openrouter_text(prompt, api_key, model, base_url, max_tokens, temperature)
 
 
@@ -187,6 +194,8 @@ def call_llm_multimodal(
         return _call_bianxie_multimodal(contents, api_key, model, base_url, max_tokens, temperature)
     if provider == "gemini":
         return _call_gemini_multimodal(contents, api_key, model, max_tokens, temperature)
+    if provider == "dashscope":
+        return _call_dashscope_multimodal(contents, api_key, model, max_tokens, temperature)
     return _call_openrouter_multimodal(contents, api_key, model, base_url, max_tokens, temperature)
 
 
@@ -197,6 +206,7 @@ def call_llm_image_generation(
     base_url: str,
     provider: ProviderType,
     reference_image: Optional[Image.Image] = None,
+    image_api_key: Optional[str] = None,
 ) -> Optional[Image.Image]:
     """
     统一的图像生成 LLM 调用接口
@@ -207,6 +217,7 @@ def call_llm_image_generation(
         model: 模型名称
         base_url: API base URL
         provider: API 提供商
+        image_api_key: 图像生成专用 API Key (用于 DashScope 等需要独立 key 的场景)
 
     Returns:
         生成的 PIL Image，失败返回 None
@@ -221,6 +232,9 @@ def call_llm_image_generation(
             reference_image=reference_image,
             image_size=GEMINI_DEFAULT_IMAGE_SIZE,
         )
+    if provider == "dashscope":
+        # DashScope wan2.6-t2i 需要独立的 image_api_key
+        return _call_dashscope_image_generation(prompt, image_api_key or api_key, model, reference_image)
     return _call_openrouter_image_generation(prompt, api_key, model, base_url, reference_image)
 
 
@@ -939,6 +953,210 @@ def _call_gemini_image_generation(
 
 
 # ============================================================================
+# DashScope Provider 实现 (使用 OpenAI SDK 兼容模式)
+# ============================================================================
+
+def _call_dashscope_text(
+    prompt: str,
+    api_key: str,
+    model: str,
+    max_tokens: int = 16000,
+    temperature: float = 0.7,
+) -> Optional[str]:
+    """使用 OpenAI SDK 调用 DashScope 文本接口 (Bailian 版本)"""
+    try:
+        from openai import OpenAI
+
+        # 使用 Bailian endpoint (用户提供的 key 适用于此 endpoint)
+        client = OpenAI(
+            base_url="https://coding.dashscope.aliyuncs.com/v1",
+            api_key=api_key,
+        )
+
+        completion = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+
+        return completion.choices[0].message.content if completion and completion.choices else None
+    except Exception as e:
+        print(f"[DashScope] API 调用失败：{e}")
+        raise
+
+
+def _call_dashscope_multimodal(
+    contents: List[Any],
+    api_key: str,
+    model: str,
+    max_tokens: int = 16000,
+    temperature: float = 0.7,
+) -> Optional[str]:
+    """使用 OpenAI SDK 调用 DashScope 多模态接口 (Bailian 版本)"""
+    try:
+        from openai import OpenAI
+
+        # 使用 Bailian  endpoint (用户提供的 key 适用于此 endpoint)
+        client = OpenAI(
+            base_url="https://coding.dashscope.aliyuncs.com/v1",
+            api_key=api_key,
+        )
+
+        message_content: List[Dict[str, Any]] = []
+        for part in contents:
+            if isinstance(part, str):
+                message_content.append({"type": "text", "text": part})
+            elif isinstance(part, Image.Image):
+                buf = io.BytesIO()
+                part.save(buf, format='PNG')
+                image_b64 = base64.b64encode(buf.getvalue()).decode('utf-8')
+                message_content.append({
+                    "type": "image_url",
+                    "image_url": {"url": f"data:image/png;base64,{image_b64}"}
+                })
+
+        completion = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": message_content}],
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+
+        return completion.choices[0].message.content if completion and completion.choices else None
+    except Exception as e:
+        print(f"[DashScope] 多模态 API 调用失败：{e}")
+        raise
+
+
+def _call_dashscope_image_generation(
+    prompt: str,
+    api_key: str,
+    model: str,
+    reference_image: Optional[Image.Image] = None,
+) -> Optional[Image.Image]:
+    """
+    使用 DashScope SDK 调用万相模型生成图像 (wan2.6-t2i)
+
+    基于官方文档：https://help.aliyun.com/zh/model-studio/text-to-image
+
+    Args:
+        prompt: 正向提示词
+        api_key: DashScope API Key
+        model: 模型名称 (wan2.6-t2i, wan2.5-t2i-preview, etc.)
+        reference_image: 参考图片 (可选)
+
+    Returns:
+        生成的 PIL Image，失败返回 None
+    """
+    try:
+        import dashscope
+        from dashscope.aigc.image_generation import ImageGeneration
+        from dashscope.api_entities.dashscope_response import Message
+
+        # 设置 base_url (北京地域)
+        dashscope.base_http_api_url = 'https://dashscope.aliyuncs.com/api/v1'
+
+        print(f"[DashScope] 使用 SDK 调用图像生成，模型：{model}")
+        print(f"[DashScope] 提示词：{prompt[:100]}...")
+
+        # 构建消息对象
+        message = Message(
+            role="user",
+            content=[{'text': prompt}]
+        )
+
+        # 调用 SDK (同步模式)
+        rsp = ImageGeneration.call(
+            model=model,
+            api_key=api_key,
+            messages=[message],
+            negative_prompt="",
+            prompt_extend=True,
+            watermark=False,
+            n=1,
+            size="1280*1280"
+        )
+
+        print(f"[DashScope] SDK 响应状态码：{rsp.status_code}")
+
+        if rsp.status_code == 200 and rsp.output and rsp.output.choices:
+            # 从响应中提取图片 URL
+            for choice in rsp.output.choices:
+                if choice.message and choice.message.content:
+                    for content in choice.message.content:
+                        # content 可能是 dict 或对象
+                        image_url = None
+                        if isinstance(content, dict):
+                            image_url = content.get('image')
+                        elif hasattr(content, 'image'):
+                            image_url = content.image
+
+                        if image_url:
+                            print(f"[DashScope] 获取图片 URL: {image_url[:50]}...")
+                            response = requests.get(image_url, timeout=30)
+                            return Image.open(io.BytesIO(response.content))
+
+        # 错误处理
+        error_msg = rsp.message if hasattr(rsp, 'message') and rsp.message else str(rsp)
+        error_code = rsp.code if hasattr(rsp, 'code') else 'Unknown'
+        print(f"[DashScope] 图像生成失败：code={error_code}, message={error_msg[:200]}")
+        return None
+
+    except Exception as e:
+        print(f"[DashScope] 图像生成 API 调用失败：{e}")
+        raise
+
+
+def _poll_dashscope_task(
+    task_id: str,
+    api_key: str,
+    max_wait: int = 300,
+    poll_interval: int = 5
+) -> Optional[Image.Image]:
+    """Poll for async task completion"""
+    import time
+
+    url = f"https://dashscope.aliyuncs.com/api/v1/tasks/{task_id}"
+    headers = {
+        'Authorization': f'Bearer {api_key}',
+    }
+
+    start_time = time.time()
+    while time.time() - start_time < max_wait:
+        response = requests.get(url, headers=headers, timeout=30)
+        if response.status_code != 200:
+            print(f"[DashScope] Task poll failed: {response.status_code}")
+            return None
+
+        result = response.json()
+        output = result.get("output", {})
+        task_status = output.get("task_status", "UNKNOWN")
+
+        if task_status == "SUCCEEDED":
+            results = output.get("results", [])
+            if results:
+                img_result = results[0]
+                if "url" in img_result:
+                    image_url = img_result["url"]
+                    img_response = requests.get(image_url, timeout=30)
+                    return Image.open(io.BytesIO(img_response.content))
+                elif "image_b64" in img_result or "b64" in img_result:
+                    image_b64 = img_result.get("image_b64") or img_result.get("b64")
+                    return Image.open(io.BytesIO(base64.b64decode(image_b64)))
+            return None
+        elif task_status in ["FAILED", "CANCELED"]:
+            print(f"[DashScope] Task failed: {output.get('message', 'Unknown error')}")
+            return None
+
+        time.sleep(poll_interval)
+
+    print(f"[DashScope] Task timeout after {max_wait}s")
+    return None
+
+
+
+# ============================================================================
 # 步骤一：调用 LLM 生成图片
 # ============================================================================
 
@@ -951,6 +1169,7 @@ def generate_figure_from_method(
     provider: ProviderType,
     use_reference_image: Optional[bool] = None,
     reference_image_path: Optional[str] = None,
+    image_api_key: Optional[str] = None,
 ) -> str:
     """
     使用 LLM 生成学术风格图片
@@ -1028,6 +1247,7 @@ The figure should be engaging and using academic journal style with cute charact
         base_url=base_url,
         provider=provider,
         reference_image=reference_image,
+        image_api_key=image_api_key,
     )
 
     if img is None:
@@ -2774,6 +2994,7 @@ def method_to_svg(
     method_text: str,
     output_dir: str = "./output",
     api_key: str = None,
+    image_api_key: Optional[str] = None,
     base_url: str = None,
     provider: ProviderType = "bianxie",
     image_gen_model: str = None,
@@ -2864,6 +3085,7 @@ def method_to_svg(
         model=image_gen_model,
         base_url=base_url,
         provider=provider,
+        image_api_key=image_api_key,
     )
 
     if stop_after == 1:
@@ -3066,13 +3288,14 @@ if __name__ == "__main__":
     # Provider 参数
     parser.add_argument(
         "--provider",
-        choices=["openrouter", "bianxie", "gemini"],
+        choices=["openrouter", "bianxie", "gemini", "dashscope"],
         default="bianxie",
         help="API 提供商（默认: bianxie）"
     )
 
     # API 参数
     parser.add_argument("--api_key", default=None, help="API Key")
+    parser.add_argument("--image_api_key", default=None, help="Image Generation API Key（for DashScope Wanx models）")
     parser.add_argument("--base_url", default=None, help="API base URL（默认根据 provider 自动设置）")
 
     # 模型参数
@@ -3163,6 +3386,7 @@ if __name__ == "__main__":
         method_text=method_text,
         output_dir=args.output_dir,
         api_key=args.api_key,
+        image_api_key=args.image_api_key,
         base_url=args.base_url,
         provider=args.provider,
         image_gen_model=args.image_model,

@@ -16,10 +16,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+
+# Load environment variables from .env file
+load_dotenv()
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -89,6 +93,7 @@ class RunRequest(BaseModel):
     method_text: str = Field(..., min_length=1)
     provider: str = "bianxie"
     api_key: Optional[str] = None
+    image_api_key: Optional[str] = None
     base_url: Optional[str] = None
     image_model: Optional[str] = None
     svg_model: Optional[str] = None
@@ -135,8 +140,14 @@ def run_job(req: RunRequest) -> JSONResponse:
         req.provider,
     ]
 
-    if req.api_key:
-        cmd += ["--api_key", req.api_key]
+    # Use API keys from request or environment variables
+    api_key = req.api_key or os.environ.get("DASHSCOPE_API_KEY")
+    image_api_key = req.image_api_key or os.environ.get("DASHSCOPE_IMAGE_API_KEY")
+
+    if api_key:
+        cmd += ["--api_key", api_key]
+    if image_api_key:
+        cmd += ["--image_api_key", image_api_key]
     if req.base_url:
         cmd += ["--base_url", req.base_url]
     if req.image_model:
